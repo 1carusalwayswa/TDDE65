@@ -2,11 +2,31 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <pthread.h>
 #include "ppmio.h"
 #include "blurfilter.h"
 #include "gaussw.h"
 
 #define MAX_RAD 1000
+#define NUM_THREADS 5
+
+struct thread_data {
+	int threadId;
+	int xsize;
+	int ysize;
+	pixel* src;
+	int startRow; 
+	int endRow; 
+	int radius;
+	double *w;
+};
+struct thread_data thread_data_array[NUM_THREADS];
+
+void *thread_blur_fillter(void *arg) {
+	struct thread_data *data = (struct thread_data *) arg;
+	blurfilter(data -> xsize, data -> ysize, data -> src, data -> startRow, data -> endRow, data -> radius, data ->*w);
+	pthread.exit(NULL);
+}
 
 int main (int argc, char ** argv)
 {
@@ -14,6 +34,7 @@ int main (int argc, char ** argv)
 	pixel *src = (pixel*) malloc(sizeof(pixel) * MAX_PIXELS);
 	struct timespec stime, etime;
 	double w[MAX_RAD];
+	pthread_t threads[NUM_THREADS];
 	
 	/* Take care of the arguments */
 	if (argc != 4)
@@ -47,7 +68,22 @@ int main (int argc, char ** argv)
 	printf("Calling filter\n");
 	
 	clock_gettime(CLOCK_REALTIME, &stime);
-	blurfilter(xsize, ysize, src, radius, w);
+	for (int t = 0; t < NUM_THREADS; t++) {
+        int rows_per_thread = ysize / NUM_THREADS;
+        thread_data_array[t].thread_id = t;
+        thread_data_array[t].xsize = xsize;
+        thread_data_array[t].ysize = ysize;
+        thread_data_array[t].radius = radius;
+        thread_data_array[t].w = w;
+        thread_data_array[t].src = src;
+        thread_data_array[t].start_row = t * rows_per_thread;
+        thread_data_array[t].end_row = (t == NUM_THREADS - 1) ? ysize : (t + 1) * rows_per_thread;
+
+        pthread_create(&threads[t], NULL, thread_blurfilter, (void *) &thread_data_array[t]);
+    }
+	for (int t = 0; t < NUM_THREADS; t++) {
+        pthread_join(threads[t], NULL);
+    }
 	clock_gettime(CLOCK_REALTIME, &etime);
 	
 	printf("Filtering took: %g secs\n", (etime.tv_sec  - stime.tv_sec) +

@@ -14,13 +14,13 @@ pixel* pix(pixel* image, const int xx, const int yy, const int xsize)
 	return (image + off);
 }
 
-void blurfilter(const int xsize, const int ysize, pixel* src, const int radius, const double *w)
+void blurfilter(const int xsize, const int ysize, pixel* src, int startRow, int endRow, const int radius, const double *w)
 {
 	int x, y, x2, y2, wi;
 	double r, g, b, n, wc;
 	pixel *dst = (pixel*) malloc(sizeof(pixel) * MAX_PIXELS);
 	
-	for (y=0; y<ysize; y++)
+	for (y=startRow; y<endRow; y++)
 	{
 		for (x=0; x<xsize; x++)
 		{
@@ -54,7 +54,7 @@ void blurfilter(const int xsize, const int ysize, pixel* src, const int radius, 
 		}
 	}
 	
-	for (y=0; y<ysize; y++)
+	for (y=startRow; y<endRow; y++)
 	{
 		for (x=0; x<xsize; x++)
 		{
