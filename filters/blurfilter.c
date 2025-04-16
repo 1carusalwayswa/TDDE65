@@ -14,11 +14,11 @@ pixel* pix(pixel* image, const int xx, const int yy, const int xsize)
 	return (image + off);
 }
 
-void blurfilter(const int xsize, const int ysize, pixel* src, int startRow, int endRow, const int radius, const double *w)
+void blurfilter1(const int xsize, const int ysize, pixel* src, pixel* dst, int startRow, int endRow, const int radius, const double *w)
 {
 	int x, y, x2, y2, wi;
 	double r, g, b, n, wc;
-	pixel *dst = (pixel*) malloc(sizeof(pixel) * MAX_PIXELS);
+	//pixel *dst = (pixel*) malloc(sizeof(pixel) * MAX_PIXELS);
 	
 	for (y=startRow; y<endRow; y++)
 	{
@@ -53,7 +53,12 @@ void blurfilter(const int xsize, const int ysize, pixel* src, int startRow, int 
 			pix(dst,x,y, xsize)->b = b/n;
 		}
 	}
+}
 	
+void blurfilter2(const int xsize, const int ysize, pixel* src, pixel* dst, int startRow, int endRow, const int radius, const double *w) {
+	int x, y, x2, y2, wi;
+	double r, g, b, n, wc;
+
 	for (y=startRow; y<endRow; y++)
 	{
 		for (x=0; x<xsize; x++)
@@ -85,7 +90,10 @@ void blurfilter(const int xsize, const int ysize, pixel* src, int startRow, int 
 			pix(src,x,y, xsize)->r = r/n;
 			pix(src,x,y, xsize)->g = g/n;
 			pix(src,x,y, xsize)->b = b/n;
+			// pix(src,x,y, xsize)->r = 255;
+			// pix(src,x,y, xsize)->g = 255;
+			// pix(src,x,y, xsize)->b = 255;
 		}
 	}
-	free(dst);
+	//free(dst);
 }
