@@ -8,18 +8,18 @@
 #include "gaussw.h"
 
 #define MAX_RAD 1000
-#define NUM_THREADS 4
+#define NUM_THREADS 16
 
 struct thread_data {
 	int thread_id;
 	int xsize;
 	int ysize;
-	pixel* src;
-	pixel* dst;
 	int startRow; 
 	int endRow; 
 	int radius;
 	double *w;
+	pixel* src;
+	pixel* dst;
 };
 struct thread_data thread_data_array[NUM_THREADS];
 

@@ -1,28 +1,31 @@
 #include "thresfilter.h"
-#define uint unsigned int 
 
-void thresfilter(const int xsize, const int ysize, pixel* src)
+void thresfilter(const int xsize, const int ysize, int startRow, int endRow, pixel* src, uint sum)
 {
-	uint sum, i, psum, nump;
-	nump = xsize * ysize;
+	uint i, psum, nump;
+	/*nump = xsize * ysize;
 	
 	for (i = 0, sum = 0; i < nump; i++)
 	{
 		sum += (uint)src[i].r + (uint)src[i].g + (uint)src[i].b;
 	}
 	
-	sum /= nump;
+	sum /= nump;*/
 	
-	for (i = 0; i < nump; i++)
-	{
-		psum = (uint)src[i].r + (uint)src[i].g + (uint)src[i].b;
-		if (sum > psum)
-		{
-			src[i].r = src[i].g = src[i].b = 0;
+	for (int y = startRow; y < endRow; y++) {
+
+		for (int x = 0; x < xsize; x++) {
+
+			int idx = y * xsize + x;
+			uint psum = src[idx].r + src[idx].g + src[idx].b;
+
+			if (psum < sum) {
+				src[idx].r = src[idx].g = src[idx].b = 0;
+			} else {
+				src[idx].r = src[idx].g = src[idx].b = 255;
+			}
+			
 		}
-		else
-		{
-			src[i].r = src[i].g = src[i].b = 255;
-		}
+
 	}
 }
