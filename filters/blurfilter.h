@@ -11,7 +11,6 @@ typedef struct _pixel {
 	unsigned char r,g,b;
 } pixel;
 
-void blurfilter1(const int xsize, const int ysize, pixel* src, pixel* dst, int startRow, int endRow, const int radius, const double *w);
-void blurfilter2(const int xsize, const int ysize, pixel* src, pixel* dst, int startRow, int endRow, const int radius, const double *w);
+void blurfilter(const int xsize, const int ysize, pixel* src, int startRow, int endRow, const int radius, const double *w);
 
 #endif

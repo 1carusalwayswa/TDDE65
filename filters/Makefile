@@ -1,4 +1,4 @@
-CC = gcc
+CC = mpicc
 CFLAGS = 
 LFLAGS = -lpthread -lrt -lm
 

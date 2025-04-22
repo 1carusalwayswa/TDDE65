@@ -2,89 +2,103 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
-#include <pthread.h>
+#include <mpi.h>
 #include "ppmio.h"
 #include "thresfilter.h"
 
-#define NUM_THREADS 16
-
-struct thread_data {
-	int thread_id;
-	int xsize;
-	int ysize;
-	int startRow;
-	int endRow;
-	uint sum;
-	pixel* src;
-};
-struct thread_data thread_data_array[NUM_THREADS];
-
-void *thread_filter(void *arg) {
-	struct thread_data *data = (struct thread_data *) arg;
-	thresfilter(data -> xsize, data -> ysize, data -> startRow, data -> endRow, data -> src, data->sum);
-	pthread_exit(NULL);
-}
+#define MAX_RAD 1000
+#define TAG 0
 
 int main (int argc, char ** argv)
 {
 	int xsize, ysize, colmax;
 	pixel *src = (pixel*) malloc(sizeof(pixel) * MAX_PIXELS);
+	pixel *local_src = NULL;
 	struct timespec stime, etime;
-	pthread_t threads[NUM_THREADS];
-	uint nump,sum,i;
+	uint i, nump, sum;
+
+	int rank, size;
+    MPI_Init(&argc, &argv);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
 	
 	/* Take care of the arguments */
 	if (argc != 3)
 	{
-		fprintf(stderr, "Usage: %s infile outfile\n", argv[0]);
+		if(rank == 0) fprintf(stderr, "Usage: %s infile outfile\n", argv[0]);
+		MPI_Finalize();
 		exit(1);
 	}
 	
 	/* Read file */
-	if(read_ppm (argv[1], &xsize, &ysize, &colmax, (char *) src) != 0)
-		exit(1);
-	
-	if (colmax > 255)
-	{
-		fprintf(stderr, "Too large maximum color-component value\n");
-		exit(1);
+	if(rank == 0) {
+		if(read_ppm (argv[1], &xsize, &ysize, &colmax, (char *) src) != 0) {
+			MPI_Abort(MPI_COMM_WORLD, 1);
+		}
+
+		if (colmax > 255) {
+			fprintf(stderr, "Too large maximum color-component value\n");
+			MPI_Abort(MPI_COMM_WORLD, 1);
+		}
 	}
 	
 	printf("Has read the image, calling filter\n");
 
-	clock_gettime(CLOCK_REALTIME, &stime);
-	nump = xsize * ysize;
-	for (i = 0, sum = 0; i < nump; i++)
-	{
-		sum += (uint)src[i].r + (uint)src[i].g + (uint)src[i].b;
+	if(rank == 0) {
+		nump = xsize * ysize;
+		for (i = 0, sum = 0; i < nump; i++) {
+			sum += (uint)src[i].r + (uint)src[i].g + (uint)src[i].b;
+		}
+		sum /= nump;
 	}
-	sum /= nump;
+
+	MPI_Bcast(&xsize, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&ysize, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+	int rows_per_proc = ysize / size;
+    int extra_rows = ysize % size;
+    int start_row = rank * rows_per_proc + (rank < extra_rows ? rank : extra_rows);
+    int local_rows = rows_per_proc + (rank < extra_rows ? 1 : 0);
+
+    local_src = (pixel *)malloc(sizeof(pixel) * xsize * local_rows);
+
 	//thresfilter(xsize, ysize, src);
-	int rows_per_thread = ysize / NUM_THREADS;
-	for (int t = 0; t < NUM_THREADS; t++) {
-        thread_data_array[t].thread_id = t;
-        thread_data_array[t].xsize = xsize;
-        thread_data_array[t].ysize = ysize;
-        thread_data_array[t].src = src;
-        thread_data_array[t].startRow = t * rows_per_thread;
-        thread_data_array[t].endRow = (t == NUM_THREADS - 1) ? ysize : (t + 1) * rows_per_thread;
-		thread_data_array[t].sum = sum;
-		printf("first run\n");
-		printf("%d: st:%d ed:%d\n", t, thread_data_array[t].startRow, thread_data_array[t].endRow);
+	if(rank == 0) {
+		for (int i = 1; i < size; i++) {
+			int s_row = i * rows_per_proc + (i < extra_rows ? i : extra_rows);
+			int l_rows = rows_per_proc + (i < extra_rows ? 1 : 0);
+			MPI_Send(&src[s_row * xsize], xsize * l_rows * sizeof(pixel), MPI_BYTE, i, TAG, MPI_COMM_WORLD);
+		}
+		memcpy(local_src, &src[start_row * xsize], xsize * local_rows * sizeof(pixel));
+	}
+	else {
+		MPI_Recv(local_src, xsize * local_rows * sizeof(pixel), MPI_BYTE, 0, TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+	}
 
-        pthread_create(&threads[t], NULL, thread_filter, (void *) &thread_data_array[t]);
-    }
+	if (rank == 0) {
+		clock_gettime(CLOCK_REALTIME, &stime);
 
-	for (int t = 0; t < NUM_THREADS; t++) {
-        pthread_join(threads[t], NULL);
-    }
-	clock_gettime(CLOCK_REALTIME, &etime);
+		thresfilter(xsize, local_rows, 0, local_rows, local_src, sum);
+
+        memcpy(&src[start_row * xsize], local_src, xsize * local_rows * sizeof(pixel));
+        for (int i = 1; i < size; i++) {
+            int s_row = i * rows_per_proc + (i < extra_rows ? i : extra_rows);
+            int l_rows = rows_per_proc + (i < extra_rows ? 1 : 0);
+            MPI_Recv(&src[s_row * xsize], xsize * l_rows * sizeof(pixel), MPI_BYTE, i, TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        }
+
+		clock_gettime(CLOCK_REALTIME, &etime);
+		printf("Filtering took: %g secs\n", (etime.tv_sec  - stime.tv_sec) + 1e-9*(etime.tv_nsec  - stime.tv_nsec)) ;
 	
-	printf("Filtering took: %g secs\n", (etime.tv_sec  - stime.tv_sec) + 1e-9*(etime.tv_nsec  - stime.tv_nsec)) ;
-	
-	/* Write result */
-	printf("Writing output file\n");
-	
-	if (write_ppm(argv[2], xsize, ysize, (char *)src) != 0)
-		exit(1);
+		if (write_ppm(argv[2], xsize, ysize, (char *)src) != 0) {
+			MPI_Abort(MPI_COMM_WORLD, 1);
+		}
+		printf("Writing output file\n");
+
+		free(src);
+	}
+
+	free(local_src);
+    MPI_Finalize();
+	return 0;
 }
