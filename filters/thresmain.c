@@ -54,6 +54,7 @@ int main (int argc, char ** argv)
 
 	MPI_Bcast(&xsize, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&ysize, 1, MPI_INT, 0, MPI_COMM_WORLD);
+	MPI_Bcast(&sum, 1, MPI_UNSIGNED, 0, MPI_COMM_WORLD);
 
 	int rows_per_proc = ysize / size;
     int extra_rows = ysize % size;
@@ -64,6 +65,7 @@ int main (int argc, char ** argv)
 
 	//thresfilter(xsize, ysize, src);
 	if(rank == 0) {
+		printf("pic size: %d * %d = %d\n",xsize, ysize, xsize * ysize);
 		for (int i = 1; i < size; i++) {
 			int s_row = i * rows_per_proc + (i < extra_rows ? i : extra_rows);
 			int l_rows = rows_per_proc + (i < extra_rows ? 1 : 0);
@@ -75,11 +77,15 @@ int main (int argc, char ** argv)
 		MPI_Recv(local_src, xsize * local_rows * sizeof(pixel), MPI_BYTE, 0, TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 	}
 
+	if (rank == 0) clock_gettime(CLOCK_REALTIME, &stime);
+
+	thresfilter(xsize, local_rows, 0, local_rows, local_src, sum);
+
+	if(rank != 0) {
+        MPI_Send(local_src, xsize * local_rows * sizeof(pixel), MPI_BYTE, 0, TAG, MPI_COMM_WORLD);
+    }
+
 	if (rank == 0) {
-		clock_gettime(CLOCK_REALTIME, &stime);
-
-		thresfilter(xsize, local_rows, 0, local_rows, local_src, sum);
-
         memcpy(&src[start_row * xsize], local_src, xsize * local_rows * sizeof(pixel));
         for (int i = 1; i < size; i++) {
             int s_row = i * rows_per_proc + (i < extra_rows ? i : extra_rows);

@@ -54,6 +54,7 @@ int main(int argc, char **argv) {
     MPI_Bcast(&xsize, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&ysize, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(w, MAX_RAD, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    //printf("Rank %d reached after bcast\n", rank);
 
     int rows_per_proc = ysize / size;
     int extra_rows = ysize % size;
@@ -63,20 +64,28 @@ int main(int argc, char **argv) {
     local_src = (pixel *)malloc(sizeof(pixel) * xsize * local_rows);
 
     if (rank == 0) {
+        printf("pic size: %d * %d = %d\n",xsize, ysize, xsize * ysize);
         for (int i = 1; i < size; i++) {
             int s_row = i * rows_per_proc + (i < extra_rows ? i : extra_rows);
             int l_rows = rows_per_proc + (i < extra_rows ? 1 : 0);
             MPI_Send(&src[s_row * xsize], xsize * l_rows * sizeof(pixel), MPI_BYTE, i, TAG, MPI_COMM_WORLD);
+            //printf("Rank %d reached after send\n", rank);
         }
         memcpy(local_src, &src[start_row * xsize], xsize * local_rows * sizeof(pixel));
     } else {
         MPI_Recv(local_src, xsize * local_rows * sizeof(pixel), MPI_BYTE, 0, TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        //printf("Rank %d reached after recv\n", rank);
     }
 
     if (rank == 0)
         clock_gettime(CLOCK_REALTIME, &stime);
 
     blurfilter(xsize, local_rows, local_src, 0, local_rows, radius, w);
+    //printf("Rank %d reached after blurfilter\n", rank);
+
+    if(rank != 0) {
+        MPI_Send(local_src, xsize * local_rows * sizeof(pixel), MPI_BYTE, 0, TAG, MPI_COMM_WORLD);
+    }
 
     if (rank == 0) {
         memcpy(&src[start_row * xsize], local_src, xsize * local_rows * sizeof(pixel));
@@ -84,6 +93,7 @@ int main(int argc, char **argv) {
             int s_row = i * rows_per_proc + (i < extra_rows ? i : extra_rows);
             int l_rows = rows_per_proc + (i < extra_rows ? 1 : 0);
             MPI_Recv(&src[s_row * xsize], xsize * l_rows * sizeof(pixel), MPI_BYTE, i, TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            //printf("Rank %d reached after mixing up data\n", rank);
         }
 
         clock_gettime(CLOCK_REALTIME, &etime);
