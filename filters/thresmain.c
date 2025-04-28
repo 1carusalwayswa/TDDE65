@@ -6,7 +6,7 @@
 #include "ppmio.h"
 #include "thresfilter.h"
 
-#define NUM_THREADS 16
+#define NUM_THREADS 64 
 
 struct thread_data {
 	// calculation function arguments
@@ -103,8 +103,8 @@ int main (int argc, char ** argv)
         thread_data_array[t].startRow = t * rows_per_thread;
         thread_data_array[t].endRow = (t == NUM_THREADS - 1) ? ysize : (t + 1) * rows_per_thread;
 		thread_data_array[t].sum = sum;
-		printf("first run\n");
-		printf("%d: st:%d ed:%d\n", t, thread_data_array[t].startRow, thread_data_array[t].endRow);
+		// printf("first run\n");
+		// printf("%d: st:%d ed:%d\n", t, thread_data_array[t].startRow, thread_data_array[t].endRow);
 
         pthread_create(&threads[t], NULL, thread_filter, (void *) &thread_data_array[t]);
     }
