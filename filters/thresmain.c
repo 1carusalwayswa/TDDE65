@@ -15,7 +15,7 @@ int main (int argc, char ** argv)
 	pixel *src = (pixel*) malloc(sizeof(pixel) * MAX_PIXELS);
 	pixel *local_src = NULL;
 	struct timespec stime, etime;
-	uint i, nump, sum;
+	uint i, nump, sum, local_sum = 0;
 
 	int rank, size;
     MPI_Init(&argc, &argv);
@@ -44,24 +44,15 @@ int main (int argc, char ** argv)
 	
 	printf("Has read the image, calling filter\n");
 
-	if(rank == 0) {
-		nump = xsize * ysize;
-		for (i = 0, sum = 0; i < nump; i++) {
-			sum += (uint)src[i].r + (uint)src[i].g + (uint)src[i].b;
-		}
-		sum /= nump;
-	}
-
 	MPI_Bcast(&xsize, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&ysize, 1, MPI_INT, 0, MPI_COMM_WORLD);
-	MPI_Bcast(&sum, 1, MPI_UNSIGNED, 0, MPI_COMM_WORLD);
 
 	int rows_per_proc = ysize / size;
     int extra_rows = ysize % size;
     int start_row = rank * rows_per_proc + (rank < extra_rows ? rank : extra_rows);
     int local_rows = rows_per_proc + (rank < extra_rows ? 1 : 0);
 
-    local_src = (pixel *)malloc(sizeof(pixel) * xsize * local_rows);
+	local_src = (pixel *)malloc(sizeof(pixel) * xsize * local_rows);
 
 	//thresfilter(xsize, ysize, src);
 	if(rank == 0) {
@@ -78,6 +69,18 @@ int main (int argc, char ** argv)
 	}
 
 	if (rank == 0) clock_gettime(CLOCK_REALTIME, &stime);
+
+	for (i = 0; i < xsize * local_rows; i++) {
+		local_sum += (uint)local_src[i].r + (uint)local_src[i].g + (uint)local_src[i].b;
+	}
+
+	MPI_Reduce(&local_sum, &sum, 1, MPI_UNSIGNED, MPI_SUM, 0, MPI_COMM_WORLD);//add every process's local sum to main sum
+
+	if (rank == 0) {
+		nump = xsize * ysize; 
+		sum /= nump;
+	}
+	MPI_Bcast(&sum, 1, MPI_UNSIGNED, 0, MPI_COMM_WORLD);
 
 	thresfilter(xsize, local_rows, 0, local_rows, local_src, sum);
 
