@@ -9,6 +9,11 @@
 #define NUM_THREADS 16
 
 struct thread_data {
+	// calculation function arguments
+	int startIdx;
+    int endIdx;
+    uint partialSum;
+	// filter function arguments
 	int thread_id;
 	int xsize;
 	int ysize;
@@ -18,6 +23,21 @@ struct thread_data {
 	pixel* src;
 };
 struct thread_data thread_data_array[NUM_THREADS];
+
+void *compute_sum(void *arg) {
+    struct thread_data *data = (struct thread_data *) arg;
+    uint local_sum = 0;
+	pixel* local_src = data->src;
+    int start = data->startIdx;
+    int end = data->endIdx;
+    
+    for (int i = start; i < end; i++) {
+        local_sum += (uint)local_src[i].r + (uint)local_src[i].g + (uint)local_src[i].b;
+    }
+    
+    data->partialSum = local_sum;
+    pthread_exit(NULL);
+}
 
 void *thread_filter(void *arg) {
 	struct thread_data *data = (struct thread_data *) arg;
@@ -54,12 +74,26 @@ int main (int argc, char ** argv)
 
 	clock_gettime(CLOCK_REALTIME, &stime);
 	nump = xsize * ysize;
-	for (i = 0, sum = 0; i < nump; i++)
-	{
-		sum += (uint)src[i].r + (uint)src[i].g + (uint)src[i].b;
-	}
-	sum /= nump;
-	//thresfilter(xsize, ysize, src);
+    
+	int pixels_per_thread = nump / NUM_THREADS;
+    
+    for (int t = 0; t < NUM_THREADS; t++) {
+        thread_data_array[t].thread_id = t;
+        thread_data_array[t].src = src;
+        thread_data_array[t].startIdx = t * pixels_per_thread;
+        thread_data_array[t].endIdx = (t == NUM_THREADS - 1) ? nump : (t + 1) * pixels_per_thread;
+        thread_data_array[t].partialSum = 0;
+        
+        pthread_create(&threads[t], NULL, compute_sum, (void *) &thread_data_array[t]);
+    }
+    
+    sum = 0;
+    for (int t = 0; t < NUM_THREADS; t++) {
+        pthread_join(threads[t], NULL);
+        sum += thread_data_array[t].partialSum;
+    }
+	sum = sum / nump;
+
 	int rows_per_thread = ysize / NUM_THREADS;
 	for (int t = 0; t < NUM_THREADS; t++) {
         thread_data_array[t].thread_id = t;
