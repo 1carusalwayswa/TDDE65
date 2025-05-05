@@ -82,19 +82,57 @@ int main(int argc, char **argv) {
         clock_gettime(CLOCK_REALTIME, &stime);
 
     blurfilter1(xsize, local_rows, local_src, local_dst, 0, local_rows, radius, w);
-    blurfilter2(xsize, local_rows, local_src, local_dst, 0, local_rows, radius, w);
+
+    if(rank != 0) {
+        MPI_Send(local_dst, xsize * local_rows * sizeof(pixel), MPI_BYTE, 0, TAG, MPI_COMM_WORLD);
+    }
+   
+    if (rank == 0) {
+        memcpy(&src[start_row * xsize], local_dst, xsize * local_rows * sizeof(pixel));
+        for (int i = 1; i < size; i++) {
+            int s_rows = i * rows_per_proc + (i < extra_rows ? i : extra_rows);
+            int l_rows = rows_per_proc + (i < extra_rows ? 1 : 0);
+            MPI_Recv(&src[s_rows * xsize], xsize * l_rows * sizeof(pixel), MPI_BYTE, i, TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            //printf("Rank %d reached after mixing up data\n", rank);
+        }
+    }
+    
+    int cols_per_proc = xsize / size;
+    int extra_cols = xsize % size;
+    int start_cols = rank * cols_per_proc + (rank < extra_cols ? rank : extra_cols);
+    int local_cols = cols_per_proc + (rank < extra_cols? 1 : 0);
+
+    free(local_src);
+    free(local_dst);
+    local_src = (pixel *)malloc(sizeof(pixel) * ysize * local_cols);
+    local_dst = (pixel*) malloc(sizeof(pixel) * MAX_PIXELS);
+    if (rank == 0) {
+        printf("pic size: %d * %d = %d\n",xsize, ysize, xsize * ysize);
+        for (int i = 1; i < size; i++) {
+            int s_cols = i * cols_per_proc + (i < extra_cols ? i : extra_cols);
+            int l_cols = cols_per_proc + (i < extra_cols ? 1 : 0);
+            MPI_Send(&src[s_cols * ysize], ysize * l_cols * sizeof(pixel), MPI_BYTE, i, TAG, MPI_COMM_WORLD);
+            //printf("Rank %d reached after send\n", rank);
+        }
+        memcpy(local_src, &src[start_cols * ysize], ysize * local_cols * sizeof(pixel));
+    } else {
+        MPI_Recv(local_src, ysize * local_cols * sizeof(pixel), MPI_BYTE, 0, TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        //printf("Rank %d reached after recv\n", rank);
+    }
+
+    blurfilter2(xsize, ysize, local_src, local_dst, 0, local_cols, radius, w);
     //printf("Rank %d reached after blurfilter\n", rank);
 
     if(rank != 0) {
-        MPI_Send(local_src, xsize * local_rows * sizeof(pixel), MPI_BYTE, 0, TAG, MPI_COMM_WORLD);
+        MPI_Send(local_src, ysize * local_cols * sizeof(pixel), MPI_BYTE, 0, TAG, MPI_COMM_WORLD);
     }
 
     if (rank == 0) {
-        memcpy(&src[start_row * xsize], local_src, xsize * local_rows * sizeof(pixel));
+        memcpy(&src[start_cols * ysize], local_src, ysize * local_cols * sizeof(pixel));
         for (int i = 1; i < size; i++) {
-            int s_row = i * rows_per_proc + (i < extra_rows ? i : extra_rows);
-            int l_rows = rows_per_proc + (i < extra_rows ? 1 : 0);
-            MPI_Recv(&src[s_row * xsize], xsize * l_rows * sizeof(pixel), MPI_BYTE, i, TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            int s_cols = i * cols_per_proc + (i < extra_cols ? i : extra_cols);
+            int l_cols = cols_per_proc + (i < extra_cols ? 1 : 0);
+            MPI_Recv(&src[s_cols * ysize], ysize * l_cols * sizeof(pixel), MPI_BYTE, i, TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             //printf("Rank %d reached after mixing up data\n", rank);
         }
 

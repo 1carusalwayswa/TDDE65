@@ -131,13 +131,13 @@ void blurfilter1(const int xsize, const int ysize, pixel* src, pixel* dst, int s
 	}
 }
 	
-void blurfilter2(const int xsize, const int ysize, pixel* src, pixel* dst, int startRow, int endRow, const int radius, const double *w) {
+void blurfilter2(const int xsize, const int ysize, pixel* src, pixel* dst, int startCol, int endCol, const int radius, const double *w) {
 	int x, y, x2, y2, wi;
 	double r, g, b, n, wc;
 
-	for (y=startRow; y<endRow; y++)
+	for (y=0; y<ysize; y++)
 	{
-		for (x=0; x<xsize; x++)
+		for (x=startCol; x<endCol; x++)
 		{
 			r = w[0] * pix(dst, x, y, xsize)->r;
 			g = w[0] * pix(dst, x, y, xsize)->g;
