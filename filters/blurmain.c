@@ -62,6 +62,7 @@ int main(int argc, char **argv) {
     int local_rows = rows_per_proc + (rank < extra_rows ? 1 : 0);
 
     local_src = (pixel *)malloc(sizeof(pixel) * xsize * local_rows);
+    pixel *local_dst = (pixel*) malloc(sizeof(pixel) * MAX_PIXELS);
 
     if (rank == 0) {
         printf("pic size: %d * %d = %d\n",xsize, ysize, xsize * ysize);
@@ -80,7 +81,8 @@ int main(int argc, char **argv) {
     if (rank == 0)
         clock_gettime(CLOCK_REALTIME, &stime);
 
-    blurfilter(xsize, local_rows, local_src, 0, local_rows, radius, w);
+    blurfilter1(xsize, local_rows, local_src, local_dst, 0, local_rows, radius, w);
+    blurfilter2(xsize, local_rows, local_src, local_dst, 0, local_rows, radius, w);
     //printf("Rank %d reached after blurfilter\n", rank);
 
     if(rank != 0) {
