@@ -115,7 +115,7 @@ int main(int argc, char **argv) {
 			
 			for (int j = 0; j < ysize; j++) {
 				for (int k = s_cols; k < s_cols + l_cols; k++) {
-					local_src[j * l_cols + (k - s_cols)] = src[j * xsize + k];
+					local_dst[j * l_cols + (k - s_cols)] = src[j * xsize + k];
 				}
 			}
 			
