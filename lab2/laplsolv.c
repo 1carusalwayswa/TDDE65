@@ -49,13 +49,11 @@ void arrcpy(double *dst, double *src, int len)
 void laplsolv(int n, int maxiter, double tol)
 {
     double T[n+2][n+2];
-    double prev[n+2], curr[n+2], next[n+2], new_curr[n+2];
     int iter = 0;
     double max_diff;
 
     struct timespec starttime, endtime;
 
-    // Set boundary conditions and initial values
     for (int i = 0; i <= n+1; ++i)
     {
         for (int j = 0; j <= n+1; ++j)
@@ -68,32 +66,43 @@ void laplsolv(int n, int maxiter, double tol)
 
     clock_gettime(CLOCK_MONOTONIC, &starttime);
 
-    // Jacobi iteration
     do {
         max_diff = 0.0;
 
-        for (int i = 1; i <= n; ++i) {
-            // Copy rows
-            for (int j = 0; j <= n+1; ++j) {
-                prev[j] = T[i-1][j];
-                curr[j] = T[i][j];
-                next[j] = T[i+1][j];
-            }
+        #pragma omp parallel
+        {
+            double prev[n+2], curr[n+2], next[n+2], new_curr[n+2];
+            double thread_diff = 0.0;
 
-            // Compute new current row
-            #pragma omp parallel for reduction(max:max_diff)
-            for (int j = 1; j <= n; ++j) {
-                new_curr[j] = 0.25 * (prev[j] + next[j] + curr[j-1] + curr[j+1]);
-                double diff = fabs(new_curr[j] - curr[j]);
-                if (diff > max_diff)
-                    max_diff = diff;
-            }
+            #pragma omp for nowait
+            for (int i = 1; i <= n; ++i) {
+                // copy neighbor rows
+                for (int j = 0; j <= n+1; ++j) {
+                    prev[j] = T[i-1][j];
+                    curr[j] = T[i][j];
+                    next[j] = T[i+1][j];
+                }
 
-            // Write back updated values
-            for (int j = 1; j <= n; ++j) {
-                T[i][j] = new_curr[j];
+                // renew current row
+                for (int j = 1; j <= n; ++j) {
+                    new_curr[j] = 0.25 * (prev[j] + next[j] + curr[j-1] + curr[j+1]);
+                    double diff = fabs(new_curr[j] - curr[j]);
+                    if (diff > thread_diff)
+                        thread_diff = diff;
+                }
+                
+                for (int j = 1; j <= n; ++j) {
+                    T[i][j] = new_curr[j];
+                }
+
+            } // omp for nowait
+
+            #pragma omp critical
+            {
+                if (thread_diff > max_diff)
+                    max_diff = thread_diff;
             }
-        }
+        } // omp parallel
 
         iter++;
     } while (iter < maxiter && max_diff > tol);
@@ -104,6 +113,7 @@ void laplsolv(int n, int maxiter, double tol)
     printf("Number of iterations: %d\n", iter);
     printf("Temperature of element T(1,1): %.17f\n", T[1][1]);
 }
+
 
 
 int main(int argc, char* argv[])
