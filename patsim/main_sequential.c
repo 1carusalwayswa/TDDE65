@@ -170,8 +170,49 @@ int main(int argc, char** argv) {
     // 汇总压力
     MPI_Reduce(&local_pressure, &global_pressure, 1, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
 
+    // 汇总粒子数
+    int total_particles = 0;
+    int local_final_count = local_particle_count;
+    MPI_Reduce(&local_final_count, &total_particles, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+
+    // 计算平均动能作为温度的指标
+    double local_kinetic_energy = 0.0;
+    for (int p = 0; p < local_particle_count; p++) {
+        double v_squared = particles[p].vx * particles[p].vx + particles[p].vy * particles[p].vy;
+        local_kinetic_energy += 0.5 * v_squared;  // 假设质量为1
+    }
+    double global_kinetic_energy = 0.0;
+    MPI_Reduce(&local_kinetic_energy, &global_kinetic_energy, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+
     if (rank == 0) {
-        printf("Average pressure = %f\n", global_pressure / (WALL_LENGTH * time_max));
+        double avg_pressure = global_pressure / (WALL_LENGTH * time_max);
+        double volume = BOX_HORIZ_SIZE * BOX_VERT_SIZE;
+        double temperature = global_kinetic_energy / total_particles; // 平均动能作为温度
+        
+        printf("Average pressure = %f\n", avg_pressure);
+        printf("Total particles = %d\n", total_particles);
+        printf("Volume = %f\n", volume);
+        printf("Average kinetic energy (temperature) = %f\n", temperature);
+        
+        // 计算pV和nRT
+        double pV = avg_pressure * volume;
+        double nRT = total_particles * temperature;
+        
+        // Theoretically, pV should be proportional to nRT
+        double ratio = pV / nRT;
+        
+        printf("pV = %f\n", pV);
+        printf("nRT = %f\n", nRT);
+        printf("pV/nRT = %f\n", ratio);
+        
+        // Set a reasonable error range to verify the formula
+        double tolerance = 0.2; // Allow 20% error
+        if (fabs(ratio - 1.0) <= tolerance) {
+            printf("Verification result: Pass! The gas law pV=nRT holds within the error range\n");
+        } else {
+            printf("Verification result: Fail! The gas law pV=nRT does not hold within the error range\n");
+            printf("Suggestion: Try adjusting simulation parameters or increase simulation time for more accurate results\n");
+        }
     }
 
     free(particles);

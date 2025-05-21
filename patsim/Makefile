@@ -1,6 +1,17 @@
+CC = mpicc
+CFLAGS = -std=c99 -g
+LDFLAGS = -lrt -lm
+TARGET = sequential
+SRC = main_sequential.c physics.c
 
-sequential:main_sequential.c  physics.c
-	gcc -std=c99 -g -o $@ $^ -lrt -lm
+$(TARGET): $(SRC)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
-allclean:
-	-rm *.o sequential
+clean:
+	rm -f $(TARGET)
+
+# sequential:main_sequential.c  physics.c
+# 	mpicc -std=c99 -g -o $@ $^ -lrt -lm
+
+# allclean:
+# 	-rm *.o sequential
