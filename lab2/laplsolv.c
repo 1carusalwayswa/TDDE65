@@ -1,4 +1,3 @@
-
 //-----------------------------------------------------------------------
 // Serial program for solving the heat conduction problem 
 // on a square using the Jacobi method. 
@@ -55,7 +54,7 @@ void laplsolv(int n, int maxiter, double tol)
     int iter = 0;
     double max_diff;
 	int flag = 0;
-
+    int thread_size = omp_get_max_threads();
     struct timespec starttime, endtime;
 
     for (int i = 0; i <= n+1; ++i)
@@ -75,30 +74,60 @@ void laplsolv(int n, int maxiter, double tol)
 
         for (int i = 1; i <= n; ++i) {
             double thread_max_diff = 0.0;
-            
-            #pragma omp parallel for reduction(max:thread_max_diff)
-            for (int j = 1; j <= n; ++j) {
-                T_new[flag][j] = 0.25 * (T[i+1][j] + T[i-1][j] + T[i][j+1] + T[i][j-1]);
-                double diff = fabs(T_new[j] - T[i][j]);
-                thread_max_diff = fmax(thread_max_diff, diff);
-            }
 
-			if (i > 1) {
+            if (i > 2) {
 				for (int j = 1; j <= n; ++j) {
 					// Copy the new temperature values back to T i - 1
 					// so when T i + 1 is calculated, T i - 1 is already updated, and T i is not updated yet
 					// This is the key to the O(N) memory usage
 					// use delay update to ensure the strictness of the algorithm
-					T[i - 1][j] = T_new[flag][j];
+					T[i - 2][j] = T_new[flag][j];
 				}
 			}
+
+            int thread_size = omp_get_max_threads();
+            int j_len = n / thread_size;
+            int chunk_count = (n + j_len - 1) / j_len;
+            if (j_len == 0) j_len = 1;
+
+            #pragma omp parallel for reduction(max:thread_max_diff)
+            for (int chunk = 0; chunk < chunk_count; chunk++) {
+                int j_start = 1 + chunk * j_len;
+                int j_end = j_start + j_len - 1;
+                if (j_end > n) j_end = n;
+                
+                for (int j = j_start; j <= j_end; ++j) {
+                    T_new[flag][j] = 0.25 * (T[i+1][j] + T[i-1][j] + T[i][j+1] + T[i][j-1]);
+                    double diff = fabs(T_new[flag][j] - T[i][j]);
+                    thread_max_diff = fmax(thread_max_diff, diff);
+                }
+            }
+
 			flag = 1 - flag;
             
+            // for (int i = 1; i <= n; ++i) {
+            //     for (int j = 1; j <= n; ++j) {
+            //         printf("%f\t", T_new[flag][j]);
+            //     }
+            //     printf("\n");
+            // }
             max_diff = fmax(max_diff, thread_max_diff);
         }
 
+        // Copy the last row of T_new back to T
+		for (int j = 1; j <= n; ++j) {
+			T[n - 1][j] = T_new[flag][j];
+			T[n][j] = T_new[1 - flag][j];
+		}
+
+        if (tol > max_diff)
+        {
+            printf("Tolerance reached: %f\n", max_diff);
+            break;
+        }
+
         iter++;
-    } while (iter < maxiter && max_diff > tol);
+    } while (iter < maxiter);
 
     clock_gettime(CLOCK_MONOTONIC, &endtime);
 
