@@ -98,7 +98,6 @@ void laplsolv(int n, int maxiter, double tol)
             {
                 arrcpy(cur_row, &T[i][1], n);
                 
-                // Apply the Jacobi algorithm to each element in this row
                 for (int j = 1; j <= n; ++j)
                 {
                     cur_row[j-1] = (T[i][j-1] + T[i][j+1] + T[i+1][j] + last_row[j-1]) / 4.0;
