@@ -10,7 +10,7 @@
 #include "definitions.h"  //
 #include "physics.h"      //
 
-int MAX_NO_PARTICLES = 15000;
+int MAX_NO_PARTICLES = 50000;
 int INIT_NO_PARTICLES = 500;
 float MAX_INITIAL_VELOCITY = 50.0;
 float BOX_HORIZ_SIZE = 10000.0;
@@ -104,11 +104,15 @@ int main(int argc, char** argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &P_size);
 
+    MPI_Request send_requests[2];
+    MPI_Request recv_requests[2];
+    MPI_Status statuses[2];
+
     unsigned int time_max = 0;
     bool test_mode = false;
-    unsigned int particles_per_rank_init = 10000; // 默认值
+    unsigned int particles_per_rank_init = 10000; // default value
 
-    // 解析命令行参数
+    // parsing command line arguments
     for(int i = 1; i < argc; i++) {
         if(strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             if(rank == 0) print_usage(argv[0]);
@@ -144,7 +148,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // --- 区域分解（水平条带） ---
+    // --- region decomposition (horizontal strip) ---
     float strip_actual_height = BOX_VERT_SIZE / P_size;
     float rank_y_min = rank * strip_actual_height;
     float rank_y_max = (rank + 1) * strip_actual_height;
@@ -152,14 +156,14 @@ int main(int argc, char** argv) {
         rank_y_max = BOX_VERT_SIZE;
     }
 
-    // --- 全局墙壁坐标 ---
+    // --- global wall coordinates ---
     cord_t global_box_walls;
     global_box_walls.x0 = 0.0f;
     global_box_walls.y0 = 0.0f;
     global_box_walls.x1 = BOX_HORIZ_SIZE;
     global_box_walls.y1 = BOX_VERT_SIZE;
 
-    // --- 粒子存储与初始化 ---
+    // --- particle storage and initialization ---
     pcord_t local_particle_array[MAX_NO_PARTICLES];
     bool particle_collision_flags[MAX_NO_PARTICLES];
     unsigned int current_local_particle_count = particles_per_rank_init;
@@ -183,27 +187,29 @@ int main(int argc, char** argv) {
         }
     }
 
-    // --- 粒子交换缓冲区 ---
-    pcord_t send_buf_up[PARTICLE_BUFFER_SIZE];   //
-    pcord_t send_buf_down[PARTICLE_BUFFER_SIZE]; //
-    pcord_t recv_buf_up[PARTICLE_BUFFER_SIZE];   //
-    pcord_t recv_buf_down[PARTICLE_BUFFER_SIZE]; //
+    // --- particle exchange buffer ---
+    pcord_t send_buf_up[PARTICLE_BUFFER_SIZE];   
+    pcord_t send_buf_down[PARTICLE_BUFFER_SIZE]; 
+    pcord_t recv_buf_up[PARTICLE_BUFFER_SIZE];   
+    pcord_t recv_buf_down[PARTICLE_BUFFER_SIZE]; 
 
     float rank_local_pressure = 0.0f;
     long particles_sent_up_stat = 0;
     long particles_sent_down_stat = 0;
 
-    // --- 创建 pcord_t 的 MPI 数据类型 ---
+    // --- create pcord_t MPI data type ---
     MPI_Datatype mpi_pcord_type;
-    MPI_Type_contiguous(4, MPI_FLOAT, &mpi_pcord_type); // 4 个浮点数：x, y, vx, vy
+    MPI_Type_contiguous(4, MPI_FLOAT, &mpi_pcord_type);
     MPI_Type_commit(&mpi_pcord_type);
 
-    // --- 主模拟循环 ---
+    double start_time = MPI_Wtime();
+    // --- main simulation loop ---
     for (unsigned int t_stamp = 0; t_stamp < time_max; t_stamp++) {
         init_collisions_mpi(particle_collision_flags, current_local_particle_count);
 
-        // 1. 局部成对碰撞
+        // 1. local pairwise collisions
         for (unsigned int p_idx = 0; p_idx < current_local_particle_count; p_idx++) {
+            // every particle only allows one collision per time step
             if (particle_collision_flags[p_idx]) continue;
             for (unsigned int pp_idx = p_idx + 1; pp_idx < current_local_particle_count; pp_idx++) {
                 if (particle_collision_flags[pp_idx]) continue;
@@ -217,15 +223,15 @@ int main(int argc, char** argv) {
             }
         }
 
-        // 2. 移动未碰撞粒子与物理墙壁碰撞
+        // 2. moving uncollided particles and physical wall collisions
         for (unsigned int p_idx = 0; p_idx < current_local_particle_count; p_idx++) {
             if (!particle_collision_flags[p_idx]) {
-                feuler(&local_particle_array[p_idx], 1.0f); // STEP_SIZE 为 1.0
+                feuler(&local_particle_array[p_idx], 1.0f); // STEP_SIZE is
                 rank_local_pressure += wall_collide(&local_particle_array[p_idx], global_box_walls); //
             }
         }
 
-        // 3. 粒子迁移
+        // 3. particle migration
         unsigned int num_to_send_up = 0;
         unsigned int num_to_send_down = 0;
 
@@ -234,86 +240,94 @@ int main(int argc, char** argv) {
 
         for (unsigned int p_idx = 0; p_idx < current_local_particle_count; p_idx++) {
             bool did_migrate = false;
-            if (local_particle_array[p_idx].y < rank_y_min && rank > 0) { // 向上迁移到 rank-1
+            if (local_particle_array[p_idx].y < rank_y_min && rank > 0) { 
                 if (num_to_send_up < PARTICLE_BUFFER_SIZE) {
                      send_buf_up[num_to_send_up++] = local_particle_array[p_idx];
-                } // 否则：缓冲区溢出，处理错误或丢弃粒子
+                } 
                 did_migrate = true;
-            } else if (local_particle_array[p_idx].y >= rank_y_max && rank < P_size - 1) { // 向下迁移到 rank+1
+            } else if (local_particle_array[p_idx].y >= rank_y_max && rank < P_size - 1) { 
                 if (num_to_send_down < PARTICLE_BUFFER_SIZE) {
                     send_buf_down[num_to_send_down++] = local_particle_array[p_idx];
-                } // 否则：缓冲区溢出
+                }
                 did_migrate = true;
             }
 
             if (!did_migrate) {
                 if (count_staying_particles < MAX_NO_PARTICLES) {
                     temp_staying_particles[count_staying_particles++] = local_particle_array[p_idx];
-                } // 否则：局部粒子数组溢出
+                }
             }
         }
-        // 压缩 local_particle_array
+        // compress local_particle_array
         for(unsigned int i=0; i<count_staying_particles; ++i) local_particle_array[i] = temp_staying_particles[i];
         current_local_particle_count = count_staying_particles;
 
-        particles_sent_up_stat += num_to_send_up;
-        particles_sent_down_stat += num_to_send_down;
-
-        // --- MPI 通信 ---
+        // non-blocking communication
         unsigned int num_to_recv_up = 0;
         unsigned int num_to_recv_down = 0;
-        MPI_Status status;
+        int request_count = 0;
 
-        // 与上方邻居 (rank-1) 交换
-        if (rank > 0) { // 不是 rank 0
-            MPI_Sendrecv(&num_to_send_up, 1, MPI_UNSIGNED, rank - 1, 0,
-                         &num_to_recv_up, 1, MPI_UNSIGNED, rank - 1, 0,
-                         MPI_COMM_WORLD, &status);
-            MPI_Sendrecv(send_buf_up, num_to_send_up, mpi_pcord_type, rank - 1, 1,
-                         recv_buf_up, num_to_recv_up, mpi_pcord_type, rank - 1, 1,
-                         MPI_COMM_WORLD, &status);
-        }
-        // 与下方邻居 (rank+1) 交换
-        if (rank < P_size - 1) { // 不是最后一个 rank
-            MPI_Sendrecv(&num_to_send_down, 1, MPI_UNSIGNED, rank + 1, 0,
-                         &num_to_recv_down, 1, MPI_UNSIGNED, rank + 1, 0,
-                         MPI_COMM_WORLD, &status);
-            MPI_Sendrecv(send_buf_down, num_to_send_down, mpi_pcord_type, rank + 1, 1,
-                         recv_buf_down, num_to_recv_down, mpi_pcord_type, rank + 1, 1,
-                         MPI_COMM_WORLD, &status);
+        // send and receive to upper neighbor
+        if (rank > 0) {
+            MPI_Isend(send_buf_up, num_to_send_up, mpi_pcord_type, rank - 1, 1, 
+                      MPI_COMM_WORLD, &send_requests[request_count]);
+            MPI_Irecv(recv_buf_up, PARTICLE_BUFFER_SIZE, mpi_pcord_type, rank - 1, 1, 
+                      MPI_COMM_WORLD, &recv_requests[request_count]);
+            request_count++;
         }
 
-        // 添加接收到的粒子
+        // send and receive to lower neighbor
+        if (rank < P_size - 1) {
+            MPI_Isend(send_buf_down, num_to_send_down, mpi_pcord_type, rank + 1, 1, 
+                      MPI_COMM_WORLD, &send_requests[request_count]);
+            MPI_Irecv(recv_buf_down, PARTICLE_BUFFER_SIZE, mpi_pcord_type, rank + 1, 1, 
+                      MPI_COMM_WORLD, &recv_requests[request_count]);
+            request_count++;
+        }
+
+        // wait for al communications to complete
+        if (request_count > 0) {
+            MPI_Waitall(request_count, recv_requests, statuses);
+            
+            // get the size of received data
+            for (int i = 0; i < request_count; i++) {
+                int count;
+                MPI_Get_count(&statuses[i], mpi_pcord_type, &count);
+                if (i == 0 && rank > 0) {
+                    num_to_recv_up = count;
+                } else if (i == 1 && rank < P_size - 1) {
+                    num_to_recv_down = count;
+                }
+            }
+        }
+
+        // process received particles
         for (unsigned int i = 0; i < num_to_recv_up; i++) {
             if (current_local_particle_count < MAX_NO_PARTICLES) {
                 local_particle_array[current_local_particle_count++] = recv_buf_up[i];
-            } // 否则：溢出
+            }
         }
         for (unsigned int i = 0; i < num_to_recv_down; i++) {
             if (current_local_particle_count < MAX_NO_PARTICLES) {
                 local_particle_array[current_local_particle_count++] = recv_buf_down[i];
-            } // 否则：溢出
+            }
         }
-        // MPI_Barrier(MPI_COMM_WORLD); // 可选：如果需要同步
+
+        // wait for all sends to complete
+        if (request_count > 0) {
+            MPI_Waitall(request_count, send_requests, statuses);
+        }
     }
 
-    // --- 聚合压力 ---
     float global_total_pressure = 0.0f;
     MPI_Reduce(&rank_local_pressure, &global_total_pressure, 1, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
 
-    // --- 聚合迁移统计（以 sent_up 为例） ---
-    long global_total_sent_up = 0;
-    MPI_Reduce(&particles_sent_up_stat, &global_total_sent_up, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-    // 可以为 sent_down、received_up、received_down 添加类似的归约操作
-
+    double end_time = MPI_Wtime();
+    double elapsed_time = end_time - start_time;
     if (rank == 0) {
         float actual_circumference = 2.0f * (BOX_HORIZ_SIZE + BOX_VERT_SIZE);
-        // global_total_pressure 是所有时间步和所有粒子中 wall_collide 记录的总动量。
-        // 串行代码将此总和除以 (WALL_LENGTH * time_max)。
-        // 这里应该相同。
         printf("Average pressure = %f\n", global_total_pressure / (actual_circumference * time_max));
-        printf("Total number of particles migrated across all internal boundaries (sum of all ranks): %ld\n", global_total_sent_up);
-        // 根据报告需要添加其他全局统计信息。
+        printf("Elapsed time = %f seconds\n", elapsed_time);
     }
 
     MPI_Type_free(&mpi_pcord_type);

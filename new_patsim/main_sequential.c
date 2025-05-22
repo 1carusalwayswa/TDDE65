@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 199309L
 #include <stdlib.h>
 #include <time.h>
 #include <stdio.h>
@@ -9,14 +10,12 @@
 #include "definitions.h"
 #include "physics.h"
 
-// 定义全局变量
 int MAX_NO_PARTICLES = 15000;
 int INIT_NO_PARTICLES = 500;
 float MAX_INITIAL_VELOCITY = 50.0;
 float BOX_HORIZ_SIZE = 10000.0;
 float BOX_VERT_SIZE = 10000.0;
 
-// 测试模式下的预设值
 #define TEST_PARTICLES 100
 #define TEST_BOX_SIZE 100.0
 #define TEST_VELOCITY 10.0
@@ -102,6 +101,7 @@ int main(int argc, char** argv){
 	unsigned int time_stamp = 0, time_max;
 	float pressure = 0;
 	bool test_mode = false;
+	struct timespec start_time, end_time;
 
 	// 解析命令行参数
 	for(int i = 1; i < argc; i++) {
@@ -165,6 +165,7 @@ int main(int argc, char** argv){
 
 	unsigned int p, pp;
 
+	clock_gettime(CLOCK_MONOTONIC, &start_time);
 	/* Main loop */
 	for (time_stamp=0; time_stamp<time_max; time_stamp++) { // for each time stamp
 
@@ -197,7 +198,11 @@ int main(int argc, char** argv){
 
 	}
 
+	clock_gettime(CLOCK_MONOTONIC, &end_time);
+	double elapsed_time = end_time.tv_sec - start_time.tv_sec + (end_time.tv_nsec - start_time.tv_nsec) / 1e9;
+
 	printf("Average pressure = %f\n", pressure / (WALL_LENGTH*time_max));
+	printf("Elapsed time = %f seconds\n", elapsed_time);
 
 	free(particles);
 	free(collisions);
