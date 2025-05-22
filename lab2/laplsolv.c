@@ -1,3 +1,4 @@
+
 //-----------------------------------------------------------------------
 // Serial program for solving the heat conduction problem 
 // on a square using the Jacobi method. 
@@ -49,91 +50,87 @@ void arrcpy(double *dst, double *src, int len)
 
 void laplsolv(int n, int maxiter, double tol)
 {
-    double T[n+2][n+2];
-    double T_new[2][n+2]; 
-    int iter = 0;
-    double max_diff;
-	int flag = 0;
-    int thread_size = omp_get_max_threads();
-    struct timespec starttime, endtime;
+	double T[n+2][n+2];
+	double last_row[n], end_row[n], cur_row[n];
+	int k;
+	
+	struct timespec starttime, endtime;
+	
+	// Set boundary conditions and initial values for the unknowns
+	for (int i = 0; i <= n+1; ++i)
+	{
+		for (int j = 0; j <= n+1; ++j)
+		{
+			if      (i == n+1)           T[i][j] = 2;
+			else if (j == 0 || j == n+1) T[i][j] = 1;
+			else                         T[i][j] = 0;
+		}
+	}
+	
+	clock_gettime(CLOCK_MONOTONIC, &starttime);
+	
+	// Solve the linear system of equations using the Jacobi method
+	for (k = 0; k < maxiter; ++k)
+	{
+		double error = -INFINITY;
 
-    for (int i = 0; i <= n+1; ++i)
-    {
-        for (int j = 0; j <= n+1; ++j)
-        {
-            if      (i == n+1)           T[i][j] = 2.0; // bottom
-            else if (j == 0 || j == n+1) T[i][j] = 1.0; // left and right
-            else                         T[i][j] = 0.0; // inside
-        }
-    }
+#pragma omp parallel private(last_row, end_row, cur_row)
+		{
+            int cur_num = omp_get_thread_num();
+            int num_threads = omp_get_num_threads();
+            int rows_per = n / num_threads;
+            double my_error = -INFINITY;
 
-    clock_gettime(CLOCK_MONOTONIC, &starttime);
 
-    do {
-        max_diff = 0.0;
-
-        for (int i = 1; i <= n; ++i) {
-            double thread_max_diff = 0.0;
-
-            if (i > 2) {
-				for (int j = 1; j <= n; ++j) {
-					// Copy the new temperature values back to T i - 1
-					// so when T i + 1 is calculated, T i - 1 is already updated, and T i is not updated yet
-					// This is the key to the O(N) memory usage
-					// use delay update to ensure the strictness of the algorithm
-					T[i - 2][j] = T_new[flag][j];
-				}
-			}
-
-            int thread_size = omp_get_max_threads();
-            int j_len = n / thread_size;
-            int chunk_count = (n + j_len - 1) / j_len;
-            if (j_len == 0) j_len = 1;
-
-            #pragma omp parallel for reduction(max:thread_max_diff)
-            for (int chunk = 0; chunk < chunk_count; chunk++) {
-                int j_start = 1 + chunk * j_len;
-                int j_end = j_start + j_len - 1;
-                if (j_end > n) j_end = n;
-                
-                for (int j = j_start; j <= j_end; ++j) {
-                    T_new[flag][j] = 0.25 * (T[i+1][j] + T[i-1][j] + T[i][j+1] + T[i][j-1]);
-                    double diff = fabs(T_new[flag][j] - T[i][j]);
-                    thread_max_diff = fmax(thread_max_diff, diff);
-                }
+            int start = cur_num * rows_per;
+            int end = start + rows_per;
+            if (cur_num == num_threads - 1)
+            {
+                end = n;
             }
 
-			flag = 1 - flag;
-            
-            // for (int i = 1; i <= n; ++i) {
-            //     for (int j = 1; j <= n; ++j) {
-            //         printf("%f\t", T_new[flag][j]);
-            //     }
-            //     printf("\n");
-            // }
-            max_diff = fmax(max_diff, thread_max_diff);
-        }
+            arrcpy(last_row, &T[start][1], n);
+            arrcpy(end_row, &T[end + 1][1], n);
 
-        // Copy the last row of T_new back to T
-		for (int j = 1; j <= n; ++j) {
-			T[n - 1][j] = T_new[flag][j];
-			T[n][j] = T_new[1 - flag][j];
+#pragma omp barrier
+            // Loop for each of this thread's rows
+            for (int i = start + 1; i <= end - 1; ++i)
+            {
+                arrcpy(cur_row, &T[i][1], n);
+                
+                // Apply the Jacobi algorithm to each element in this row
+                for (int j = 1; j <= n; ++j)
+                {
+                    cur_row[j-1] = (T[i][j-1] + T[i][j+1] + T[i+1][j] + last_row[j-1]) / 4.0;
+                    my_error = fmax(my_error, fabs(cur_row[j-1] - T[i][j]));
+                }
+                
+                arrcpy(last_row, &T[i][1], n);
+                arrcpy(&T[i][1], cur_row, n);
+            }
+
+            for (int j = 1; j <= n; ++j)
+            {
+                cur_row[j-1] = (T[end][j-1] + T[end][j+1] + last_row[j-1] + end_row[j-1]) / 4.0;
+                my_error = fmax(my_error, fabs(cur_row[j-1] - T[end][j]));
+            }
+            arrcpy(&T[end][1], cur_row, n);
+
+#pragma omp critical
+            {
+                if (my_error > error)
+                    error = my_error;
+            }
 		}
-
-        if (tol > max_diff)
-        {
-            printf("Tolerance reached: %f\n", max_diff);
-            break;
-        }
-
-        iter++;
-    } while (iter < maxiter);
-
-    clock_gettime(CLOCK_MONOTONIC, &endtime);
-
-    printf("Time: %f\n", timediff(&starttime, &endtime));
-    printf("Number of iterations: %d\n", iter);
-    printf("Temperature of element T(1,1): %.17f\n", T[1][1]);
+		if (error < tol)
+			break;
+	}
+	
+	clock_gettime(CLOCK_MONOTONIC, &endtime);
+	
+	printf("Time: %f\n", timediff(&starttime, &endtime));
+	printf("Number of iterations: %d\n", k);
+	printf("Temperature of element T(1,1): %.17f\n", T[1][1]);
 }
 
 
