@@ -9,7 +9,6 @@
 
 #define PI 3.141592653
 
-// 移除硬编码的常量，改为外部变量
 extern int MAX_NO_PARTICLES;  /* Maximum number of particles/processor */
 extern int INIT_NO_PARTICLES; /* Initial number of particles/processor */
 extern float MAX_INITIAL_VELOCITY;

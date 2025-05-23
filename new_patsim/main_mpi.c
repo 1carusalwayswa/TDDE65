@@ -187,7 +187,6 @@ int main(int argc, char** argv) {
         }
     }
 
-    // --- particle exchange buffer ---
     pcord_t send_buf_up[PARTICLE_BUFFER_SIZE];   
     pcord_t send_buf_down[PARTICLE_BUFFER_SIZE]; 
     pcord_t recv_buf_up[PARTICLE_BUFFER_SIZE];   
@@ -197,7 +196,6 @@ int main(int argc, char** argv) {
     long particles_sent_up_stat = 0;
     long particles_sent_down_stat = 0;
 
-    // --- create pcord_t MPI data type ---
     MPI_Datatype mpi_pcord_type;
     MPI_Type_contiguous(4, MPI_FLOAT, &mpi_pcord_type);
     MPI_Type_commit(&mpi_pcord_type);
@@ -293,10 +291,17 @@ int main(int argc, char** argv) {
             for (int i = 0; i < request_count; i++) {
                 int count;
                 MPI_Get_count(&statuses[i], mpi_pcord_type, &count);
-                if (i == 0 && rank > 0) {
+                
+                int source_rank = statuses[i].MPI_SOURCE;
+                
+                if (source_rank == rank - 1) {
                     num_to_recv_up = count;
-                } else if (i == 1 && rank < P_size - 1) {
+                    // printf("Rank %d: Received %d particles from rank %d (above)\n", 
+                    //        rank, count, source_rank);
+                } else if (source_rank == rank + 1) {
                     num_to_recv_down = count;
+                    // printf("Rank %d: Received %d particles from rank %d (below)\n", 
+                    //        rank, count, source_rank);
                 }
             }
         }
@@ -313,14 +318,15 @@ int main(int argc, char** argv) {
             }
         }
 
-        // wait for all sends to complete
         if (request_count > 0) {
             MPI_Waitall(request_count, send_requests, statuses);
         }
     }
 
     float global_total_pressure = 0.0f;
+    unsigned int global_total_particles = 0;
     MPI_Reduce(&rank_local_pressure, &global_total_pressure, 1, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&current_local_particle_count, &global_total_particles, 1, MPI_UNSIGNED, MPI_SUM, 0, MPI_COMM_WORLD);
 
     double end_time = MPI_Wtime();
     double elapsed_time = end_time - start_time;
@@ -328,6 +334,7 @@ int main(int argc, char** argv) {
         float actual_circumference = 2.0f * (BOX_HORIZ_SIZE + BOX_VERT_SIZE);
         printf("Average pressure = %f\n", global_total_pressure / (actual_circumference * time_max));
         printf("Elapsed time = %f seconds\n", elapsed_time);
+        printf("Total particles = %u\n", global_total_particles);
     }
 
     MPI_Type_free(&mpi_pcord_type);
